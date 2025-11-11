@@ -101,8 +101,8 @@ def main():
 
 
 # Usage :
-#  python3 data/glyco_nearest_neighbours.py ./data/NA_data_items/NA_clean_glyco.csv --prefix NA --datadir ./data/NA_data_items --pixel 0.209
-#  python3 data/glyco_nearest_neighbours.py ./data/HA_data_items/HA_clean_glyco.csv --prefix HA --datadir ./data/HA_data_items --pixel 0.209
+#  python3 scripts/glyco_nearest_neighbours.py ./data/NA_data_items/NA_clean_glyco.csv --prefix NA --datadir ./data/NA_data_items --pixel 0.209
+#  python3 scripts/glyco_nearest_neighbours.py ./data/HA_data_items/HA_clean_glyco.csv --prefix HA --datadir ./data/HA_data_items --pixel 0.209
 
 # -------------------------------------------------------------------------
 # Entry point
