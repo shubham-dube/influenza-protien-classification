@@ -198,55 +198,56 @@ class MeshGenerator:
 
 
 # ============================================================================
-# MODULE 6: FEATURE EXTRACTION (SAFE VERSION)
+# MODULE 6: FEATURE EXTRACTION (UPDATED - REFINED FEATURES)
 # ============================================================================
 class FeatureExtractor:
-    """Extract summary features from processed data."""
+    """Extract refined features from processed data for training."""
 
     @staticmethod
     def extract(coords: np.ndarray, mesh: o3d.geometry.TriangleMesh,
                 neighbor_stats: Dict[str, float]) -> Dict[str, float]:
         """
-        Extract comprehensive features safely (handles non-watertight meshes).
+        Extract refined features optimized for HA/NA classification.
+        
         Returns:
-            Dict with keys: mean_dist, std_dist, aspect_ratio, num_points,
-                            volume, surface_area
+            Dict with refined feature set:
+                - mean_dist, std_dist, min_dist, max_dist (from neighbor_stats)
+                - num_points: point count
+                - aspect_ratio: shape descriptor
+                - surface_area: envelope size
+                - density: derived feature (points per surface area)
         """
-        features = neighbor_stats.copy()
+        features = {}
 
-        # Point count
+        # ===== CORE DISTANCE FEATURES (from neighbor analysis) =====
+        features["mean_dist"] = neighbor_stats["mean_dist"]
+        features["std_dist"] = neighbor_stats["std_dist"]
+        features["min_dist"] = neighbor_stats["min_dist"]
+        features["max_dist"] = neighbor_stats["max_dist"]
+
+        # ===== POINT COUNT (glycoprotein density proxy) =====
         features["num_points"] = len(coords)
 
-        # Aspect ratio from mesh bounding box
+        # ===== SHAPE DESCRIPTOR (aspect ratio) =====
         bbox = mesh.get_axis_aligned_bounding_box()
         extents = bbox.get_extent()
         features["aspect_ratio"] = float(
             max(extents) / min(extents) if min(extents) > 0 else 0
         )
 
-        # --- SAFE GEOMETRIC PROPERTIES ---
-        try:
-            # Check if mesh is watertight before computing volume
-            if not mesh.is_watertight():
-                raise ValueError("Mesh not watertight")
-            
-            features["volume"] = float(mesh.get_volume())
-        except Exception:
-            features["volume"] = np.nan  # fallback
-            print("[WARN] Skipping volume computation (mesh not watertight)")
-
+        # ===== SURFACE AREA (reliable geometric property) =====
         try:
             features["surface_area"] = float(mesh.get_surface_area())
         except Exception:
             features["surface_area"] = np.nan
             print("[WARN] Failed to compute surface area")
 
-        # Coordinate statistics
-        if coords.size > 0:
-            features["coord_range_x"] = float(coords[:, 0].max() - coords[:, 0].min())
-            features["coord_range_y"] = float(coords[:, 1].max() - coords[:, 1].min())
-            features["coord_range_z"] = float(coords[:, 2].max() - coords[:, 2].min())
+        # ===== DERIVED FEATURE: DENSITY =====
+        # Density = num_points / surface_area
+        # This captures glycoprotein distribution better than volume
+        if features["surface_area"] > 0 and not np.isnan(features["surface_area"]):
+            features["density"] = features["num_points"] / features["surface_area"]
         else:
-            features["coord_range_x"] = features["coord_range_y"] = features["coord_range_z"] = 0.0
+            features["density"] = 0.0
 
         return features

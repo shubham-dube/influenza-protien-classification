@@ -15,7 +15,7 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 MAPS_DIR = os.path.join(ROOT_DIR, "data_directories/maps")
 CACHE_DIR = os.path.join(ROOT_DIR, "data_directories/.cache")
 OUTPUT_DIR = os.path.join(ROOT_DIR, "data_directories/output")
-FINAL_DATASET = os.path.join(OUTPUT_DIR, "final_training_dataset.csv")
+FINAL_DATASET = os.path.join(OUTPUT_DIR, "training_data.csv")
 
 # ============================================================================
 # PROCESSING PARAMETERS
@@ -65,17 +65,31 @@ EXPECTED_MAP_PATTERNS = [
 ]
 
 # ============================================================================
-# FEATURE COLUMNS
+# FEATURE COLUMNS (UPDATED FOR TRAINING)
 # ============================================================================
-COORDINATE_COLS = ["x", "y", "z"]
-SUMMARY_FEATURE_COLS = [
+# Final training features (in recommended order)
+TRAINING_FEATURE_COLS = [
     "mean_dist", 
     "std_dist", 
-    "aspect_ratio", 
+    "min_dist",
+    "max_dist",
     "num_points",
-    "protein_type",
+    "aspect_ratio", 
+    "surface_area",
+    "density",  # NEW: Derived feature
     "class_label"
 ]
+
+# Metadata columns (kept for tracking, excluded from training)
+METADATA_COLS = [
+    "map_file",
+    "map_id",
+    "protein_type",
+    "cluster_id"
+]
+
+# All output columns (for full dataset)
+ALL_OUTPUT_COLS = METADATA_COLS + TRAINING_FEATURE_COLS
 
 # ============================================================================
 # CACHE SETTINGS
@@ -108,3 +122,23 @@ def get_protein_type(filename: str) -> str:
 def get_class_label(protein_type: str) -> int:
     """Get numeric class label for protein type."""
     return PROTEIN_CLASSES.get(protein_type, -1)
+
+def extract_map_id(filename: str) -> str:
+    """
+    Extract map ID from filename.
+    
+    Examples:
+        emd_0025_HA.map -> emd_0025
+        NA_sample_123.mrc -> NA_sample_123
+    """
+    # Remove extension
+    name = os.path.splitext(filename)[0]
+    
+    # Try to extract EMD ID pattern
+    import re
+    emd_match = re.search(r'emd_\d+', name, re.IGNORECASE)
+    if emd_match:
+        return emd_match.group(0).lower()
+    
+    # Otherwise return the full filename without extension
+    return name

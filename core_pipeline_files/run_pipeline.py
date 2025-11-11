@@ -20,7 +20,8 @@ from typing import List
 
 from pipeline_config import (
     MAPS_DIR, OUTPUT_DIR, FINAL_DATASET, CACHE_INDEX_FILE,
-    ENABLE_CACHING, ensure_directories
+    ENABLE_CACHING, ensure_directories, TRAINING_FEATURE_COLS,
+    METADATA_COLS
 )
 from cache_manager import CacheManager
 from map_processor import MapProcessor
@@ -82,7 +83,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     print("="*70)
-    print("AUTOMATED CRYO-EM PROCESSING PIPELINE")
+    print("AUTOMATED CRYO-EM PROCESSING PIPELINE (v2.0)")
     print("="*70)
     print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Maps directory: {args.maps_dir}")
@@ -134,6 +135,14 @@ def main():
             df = pd.read_csv(FINAL_DATASET)
             print(f"[INFO] Dataset contains {len(df)} rows")
             print(f"[INFO] Columns: {list(df.columns)}")
+            
+            # Print feature summary
+            print("\n[INFO] Feature Summary:")
+            print(f"   Training features: {[c for c in TRAINING_FEATURE_COLS if c != 'class_label']}")
+            print(f"   Class distribution:")
+            for cls, count in df['class_label'].value_counts().items():
+                protein = df[df['class_label']==cls]['protein_type'].iloc[0]
+                print(f"     {protein} (class {cls}): {count} samples")
         
         sys.exit(0)
     
@@ -172,11 +181,11 @@ def main():
     print(f"   Total rows: {len(combined_df)}")
     print(f"   Total columns: {len(combined_df.columns)}")
     
-    # Save summary by protein type
+    # Save detailed summary
     summary_file = os.path.join(args.output_dir, "dataset_summary.txt")
     with open(summary_file, 'w') as f:
         f.write("="*70 + "\n")
-        f.write("DATASET SUMMARY\n")
+        f.write("DATASET SUMMARY (v2.0 - REFINED FEATURES)\n")
         f.write("="*70 + "\n")
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Total samples: {len(combined_df)}\n\n")
@@ -189,11 +198,36 @@ def main():
         f.write("\nSamples by class label:\n")
         class_counts = combined_df["class_label"].value_counts()
         for class_label, count in class_counts.items():
-            f.write(f"  Class {class_label}: {count}\n")
+            protein = combined_df[combined_df['class_label']==class_label]['protein_type'].iloc[0]
+            f.write(f"  Class {class_label} ({protein}): {count}\n")
         
-        f.write("\nFeature columns:\n")
-        for col in combined_df.columns:
-            f.write(f"  - {col}\n")
+        f.write("\n" + "="*70 + "\n")
+        f.write("METADATA COLUMNS (for tracking only):\n")
+        f.write("="*70 + "\n")
+        for col in METADATA_COLS:
+            if col in combined_df.columns:
+                f.write(f"  - {col}\n")
+        
+        f.write("\n" + "="*70 + "\n")
+        f.write("TRAINING FEATURE COLUMNS:\n")
+        f.write("="*70 + "\n")
+        for col in TRAINING_FEATURE_COLS:
+            if col in combined_df.columns:
+                f.write(f"  - {col}\n")
+        
+        f.write("\n" + "="*70 + "\n")
+        f.write("FEATURE STATISTICS:\n")
+        f.write("="*70 + "\n")
+        
+        # Get training features only (excluding class_label)
+        feature_cols = [c for c in TRAINING_FEATURE_COLS if c != 'class_label' and c in combined_df.columns]
+        
+        for col in feature_cols:
+            f.write(f"\n{col}:\n")
+            f.write(f"  Mean: {combined_df[col].mean():.4f}\n")
+            f.write(f"  Std:  {combined_df[col].std():.4f}\n")
+            f.write(f"  Min:  {combined_df[col].min():.4f}\n")
+            f.write(f"  Max:  {combined_df[col].max():.4f}\n")
         
         f.write("\n" + "="*70 + "\n")
     
@@ -205,10 +239,18 @@ def main():
         print(f"\n[INFO] Cache statistics:")
         print(f"   Total processed maps: {stats['total_processed']}")
     
+    # Print feature info
+    print(f"\n[INFO] Feature Engineering:")
+    print(f"   ✓ Removed unreliable 'volume' feature")
+    print(f"   ✓ Added 'density' feature (num_points / surface_area)")
+    print(f"   ✓ Added 'map_id' for traceability")
+    print(f"   ✓ Refined to {len([c for c in TRAINING_FEATURE_COLS if c != 'class_label'])} core training features")
+    
     print("\n" + "="*70)
     print("PIPELINE COMPLETED SUCCESSFULLY")
     print("="*70)
     print(f"End time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"\nReady for model training with: {FINAL_DATASET}")
 
 
 if __name__ == "__main__":

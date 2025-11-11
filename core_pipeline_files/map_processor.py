@@ -12,7 +12,10 @@ from processing_modules import (
     MapConverter, PointCloudCleaner, VirionClusterer,
     NeighborAnalyzer, MeshGenerator, FeatureExtractor
 )
-from pipeline_config import PROCESSING_PARAMS, get_protein_type, get_class_label
+from pipeline_config import (
+    PROCESSING_PARAMS, get_protein_type, get_class_label, 
+    extract_map_id, ALL_OUTPUT_COLS
+)
 
 
 class MapProcessor:
@@ -41,12 +44,15 @@ class MapProcessor:
             print(f"Processing: {os.path.basename(map_file)}")
             print(f"{'='*70}")
         
-        # Extract protein type and class
-        protein_type = get_protein_type(os.path.basename(map_file))
+        # Extract metadata
+        filename = os.path.basename(map_file)
+        protein_type = get_protein_type(filename)
         class_label = get_class_label(protein_type)
+        map_id = extract_map_id(filename)
         
         if verbose:
             print(f"[1/6] Detected protein type: {protein_type} (class {class_label})")
+            print(f"      Map ID: {map_id}")
         
         # Step 1: Convert map to coordinates
         if verbose:
@@ -102,15 +108,16 @@ class MapProcessor:
                 normal_max_nn=self.params["normal_max_nn"]
             )
             
-            # Extract features
+            # Extract features (refined feature set)
             features = self.feature_extractor.extract(
                 cluster_coords,
                 mesh,
                 neighbor_stats
             )
             
-            # Add metadata
-            features["map_file"] = os.path.basename(map_file)
+            # Add metadata (for tracking, not training)
+            features["map_file"] = filename
+            features["map_id"] = map_id
             features["protein_type"] = protein_type
             features["class_label"] = class_label
             features["cluster_id"] = i
@@ -119,10 +126,11 @@ class MapProcessor:
             
             if verbose:
                 print(f"      Cluster {i+1}: {features['num_points']} points, "
+                      f"density {features['density']:.4f}, "
                       f"aspect ratio {features['aspect_ratio']:.2f}")
         
         if verbose:
-            print(f"[6/6] ✓ Completed processing {os.path.basename(map_file)}")
+            print(f"[6/6] ✓ Completed processing {filename}")
             print(f"      Generated {len(features_list)} feature sets")
         
         return features_list
@@ -132,7 +140,7 @@ class MapProcessor:
         Process multiple map files.
         
         Returns:
-            pd.DataFrame: Combined features from all maps
+            pd.DataFrame: Combined features from all maps (column-ordered)
         """
         all_features = []
         
@@ -147,10 +155,17 @@ class MapProcessor:
                 all_features.extend(features)
             except Exception as e:
                 print(f"[ERROR] Failed to process {map_file}: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
-        # Convert to DataFrame
+        # Convert to DataFrame with correct column ordering
         df = pd.DataFrame(all_features)
+        
+        # Reorder columns to match ALL_OUTPUT_COLS
+        # (metadata first, then training features)
+        existing_cols = [col for col in ALL_OUTPUT_COLS if col in df.columns]
+        df = df[existing_cols]
         
         if verbose:
             print(f"\n{'='*70}")
