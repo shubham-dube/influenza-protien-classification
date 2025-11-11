@@ -1,5 +1,5 @@
 .venv/
 maps/
 xyz/
-HA_data_items/
-NA_data_items/
+data/
+training_data/

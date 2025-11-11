@@ -137,7 +137,7 @@ def main():
 
 
 # Usage:
-# python3 data/influenza_morphological_glyco.py data/xyz/emd_46043_NA.xyz --prefix NA_clean --datadir ./data/NA_data_items --nvirion 3
-# python3 data/influenza_morphological_glyco.py data/xyz/emd_0025_HA.xyz --prefix HA_clean --datadir ./data/HA_data_items --nvirion 3
+# python3 scripts/influenza_morphological_glyco.py data/xyz/emd_46043_NA.xyz --prefix NA_clean --datadir ./data/NA_data_items --nvirion 3
+# python3 scripts/influenza_morphological_glyco.py data/xyz/emd_0025_HA.xyz --prefix HA_clean --datadir ./data/HA_data_items --nvirion 3
 if __name__ == "__main__":
     main()
