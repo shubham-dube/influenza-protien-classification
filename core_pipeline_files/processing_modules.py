@@ -207,15 +207,17 @@ class FeatureExtractor:
     def extract(coords: np.ndarray, mesh: o3d.geometry.TriangleMesh,
                 neighbor_stats: Dict[str, float]) -> Dict[str, float]:
         """
-        Extract refined features optimized for HA/NA classification.
+        Extract final training features only.
         
         Returns:
-            Dict with refined feature set:
+            Dict with ONLY training features:
                 - mean_dist, std_dist, min_dist, max_dist (from neighbor_stats)
                 - num_points: point count
                 - aspect_ratio: shape descriptor
                 - surface_area: envelope size
-                - density: derived feature (points per surface area)
+                - density: derived (num_points / surface_area)
+                - bbox_volume: derived (coord_range_x * y * z)
+                - class_label: added later in map_processor
         """
         features = {}
 
@@ -225,29 +227,36 @@ class FeatureExtractor:
         features["min_dist"] = neighbor_stats["min_dist"]
         features["max_dist"] = neighbor_stats["max_dist"]
 
-        # ===== POINT COUNT (glycoprotein density proxy) =====
+        # ===== POINT COUNT =====
         features["num_points"] = len(coords)
 
-        # ===== SHAPE DESCRIPTOR (aspect ratio) =====
+        # ===== ASPECT RATIO =====
         bbox = mesh.get_axis_aligned_bounding_box()
         extents = bbox.get_extent()
         features["aspect_ratio"] = float(
             max(extents) / min(extents) if min(extents) > 0 else 0
         )
 
-        # ===== SURFACE AREA (reliable geometric property) =====
+        # ===== SURFACE AREA =====
         try:
             features["surface_area"] = float(mesh.get_surface_area())
         except Exception:
-            features["surface_area"] = np.nan
-            print("[WARN] Failed to compute surface area")
+            features["surface_area"] = 0.0
+            print("[WARN] Failed to compute surface area, using 0.0")
 
         # ===== DERIVED FEATURE: DENSITY =====
-        # Density = num_points / surface_area
-        # This captures glycoprotein distribution better than volume
-        if features["surface_area"] > 0 and not np.isnan(features["surface_area"]):
+        if features["surface_area"] > 0:
             features["density"] = features["num_points"] / features["surface_area"]
         else:
             features["density"] = 0.0
+
+        # ===== DERIVED FEATURE: BOUNDING BOX VOLUME =====
+        if coords.size > 0:
+            coord_range_x = float(coords[:, 0].max() - coords[:, 0].min())
+            coord_range_y = float(coords[:, 1].max() - coords[:, 1].min())
+            coord_range_z = float(coords[:, 2].max() - coords[:, 2].min())
+            features["bbox_volume"] = coord_range_x * coord_range_y * coord_range_z
+        else:
+            features["bbox_volume"] = 0.0
 
         return features

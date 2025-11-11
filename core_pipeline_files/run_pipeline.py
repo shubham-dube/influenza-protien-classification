@@ -20,8 +20,7 @@ from typing import List
 
 from pipeline_config import (
     MAPS_DIR, OUTPUT_DIR, FINAL_DATASET, CACHE_INDEX_FILE,
-    ENABLE_CACHING, ensure_directories, TRAINING_FEATURE_COLS,
-    METADATA_COLS
+    ENABLE_CACHING, ensure_directories, TRAINING_FEATURE_COLS
 )
 from cache_manager import CacheManager
 from map_processor import MapProcessor
@@ -83,7 +82,8 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     print("="*70)
-    print("AUTOMATED CRYO-EM PROCESSING PIPELINE (v2.0)")
+    print("AUTOMATED CRYO-EM PROCESSING PIPELINE (v2.1)")
+    print("TRAINING FEATURES ONLY")
     print("="*70)
     print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Maps directory: {args.maps_dir}")
@@ -136,13 +136,10 @@ def main():
             print(f"[INFO] Dataset contains {len(df)} rows")
             print(f"[INFO] Columns: {list(df.columns)}")
             
-            # Print feature summary
-            print("\n[INFO] Feature Summary:")
-            print(f"   Training features: {[c for c in TRAINING_FEATURE_COLS if c != 'class_label']}")
-            print(f"   Class distribution:")
+            # Print class distribution
+            print(f"\n[INFO] Class distribution:")
             for cls, count in df['class_label'].value_counts().items():
-                protein = df[df['class_label']==cls]['protein_type'].iloc[0]
-                print(f"     {protein} (class {cls}): {count} samples")
+                print(f"   Class {cls}: {count} samples")
         
         sys.exit(0)
     
@@ -157,10 +154,9 @@ def main():
     # Mark maps as processed in cache
     if ENABLE_CACHING:
         for map_file in map_files:
+            num_samples = len(new_features_df)
             cache.mark_processed(map_file, {
-                "num_clusters": len(new_features_df[
-                    new_features_df["map_file"] == os.path.basename(map_file)
-                ])
+                "num_samples": num_samples
             })
     
     # Load existing dataset if it exists
@@ -185,31 +181,18 @@ def main():
     summary_file = os.path.join(args.output_dir, "dataset_summary.txt")
     with open(summary_file, 'w') as f:
         f.write("="*70 + "\n")
-        f.write("DATASET SUMMARY (v2.0 - REFINED FEATURES)\n")
+        f.write("DATASET SUMMARY (v2.1 - TRAINING FEATURES ONLY)\n")
         f.write("="*70 + "\n")
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Total samples: {len(combined_df)}\n\n")
         
-        f.write("Samples by protein type:\n")
-        type_counts = combined_df["protein_type"].value_counts()
-        for protein_type, count in type_counts.items():
-            f.write(f"  {protein_type}: {count}\n")
-        
-        f.write("\nSamples by class label:\n")
+        f.write("Samples by class label:\n")
         class_counts = combined_df["class_label"].value_counts()
         for class_label, count in class_counts.items():
-            protein = combined_df[combined_df['class_label']==class_label]['protein_type'].iloc[0]
-            f.write(f"  Class {class_label} ({protein}): {count}\n")
+            f.write(f"  Class {class_label}: {count}\n")
         
         f.write("\n" + "="*70 + "\n")
-        f.write("METADATA COLUMNS (for tracking only):\n")
-        f.write("="*70 + "\n")
-        for col in METADATA_COLS:
-            if col in combined_df.columns:
-                f.write(f"  - {col}\n")
-        
-        f.write("\n" + "="*70 + "\n")
-        f.write("TRAINING FEATURE COLUMNS:\n")
+        f.write("TRAINING FEATURES (in order):\n")
         f.write("="*70 + "\n")
         for col in TRAINING_FEATURE_COLS:
             if col in combined_df.columns:
@@ -220,14 +203,14 @@ def main():
         f.write("="*70 + "\n")
         
         # Get training features only (excluding class_label)
-        feature_cols = [c for c in TRAINING_FEATURE_COLS if c != 'class_label' and c in combined_df.columns]
+        feature_cols = [c for c in TRAINING_FEATURE_COLS if c != 'class_label']
         
         for col in feature_cols:
             f.write(f"\n{col}:\n")
-            f.write(f"  Mean: {combined_df[col].mean():.4f}\n")
-            f.write(f"  Std:  {combined_df[col].std():.4f}\n")
-            f.write(f"  Min:  {combined_df[col].min():.4f}\n")
-            f.write(f"  Max:  {combined_df[col].max():.4f}\n")
+            f.write(f"  Mean: {combined_df[col].mean():.6f}\n")
+            f.write(f"  Std:  {combined_df[col].std():.6f}\n")
+            f.write(f"  Min:  {combined_df[col].min():.6f}\n")
+            f.write(f"  Max:  {combined_df[col].max():.6f}\n")
         
         f.write("\n" + "="*70 + "\n")
     
@@ -240,11 +223,14 @@ def main():
         print(f"   Total processed maps: {stats['total_processed']}")
     
     # Print feature info
-    print(f"\n[INFO] Feature Engineering:")
-    print(f"   ✓ Removed unreliable 'volume' feature")
-    print(f"   ✓ Added 'density' feature (num_points / surface_area)")
-    print(f"   ✓ Added 'map_id' for traceability")
-    print(f"   ✓ Refined to {len([c for c in TRAINING_FEATURE_COLS if c != 'class_label'])} core training features")
+    print(f"\n[INFO] Final Feature Set ({len([c for c in TRAINING_FEATURE_COLS if c != 'class_label'])} features):")
+    for feat in [c for c in TRAINING_FEATURE_COLS if c != 'class_label']:
+        print(f"   ✓ {feat}")
+    print(f"   ✓ class_label (target)")
+    
+    print(f"\n[INFO] Feature Engineering Applied:")
+    print(f"   • density = num_points / surface_area")
+    print(f"   • bbox_volume = coord_range_x × coord_range_y × coord_range_z")
     
     print("\n" + "="*70)
     print("PIPELINE COMPLETED SUCCESSFULLY")

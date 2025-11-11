@@ -14,7 +14,7 @@ from processing_modules import (
 )
 from pipeline_config import (
     PROCESSING_PARAMS, get_protein_type, get_class_label, 
-    extract_map_id, ALL_OUTPUT_COLS
+    TRAINING_FEATURE_COLS
 )
 
 
@@ -48,11 +48,9 @@ class MapProcessor:
         filename = os.path.basename(map_file)
         protein_type = get_protein_type(filename)
         class_label = get_class_label(protein_type)
-        map_id = extract_map_id(filename)
         
         if verbose:
             print(f"[1/6] Detected protein type: {protein_type} (class {class_label})")
-            print(f"      Map ID: {map_id}")
         
         # Step 1: Convert map to coordinates
         if verbose:
@@ -108,26 +106,22 @@ class MapProcessor:
                 normal_max_nn=self.params["normal_max_nn"]
             )
             
-            # Extract features (refined feature set)
+            # Extract features (ONLY training features)
             features = self.feature_extractor.extract(
                 cluster_coords,
                 mesh,
                 neighbor_stats
             )
             
-            # Add metadata (for tracking, not training)
-            features["map_file"] = filename
-            features["map_id"] = map_id
-            features["protein_type"] = protein_type
+            # Add class label (the only metadata we keep)
             features["class_label"] = class_label
-            features["cluster_id"] = i
             
             features_list.append(features)
             
             if verbose:
                 print(f"      Cluster {i+1}: {features['num_points']} points, "
                       f"density {features['density']:.4f}, "
-                      f"aspect ratio {features['aspect_ratio']:.2f}")
+                      f"bbox_volume {features['bbox_volume']:.2f}")
         
         if verbose:
             print(f"[6/6] ✓ Completed processing {filename}")
@@ -159,13 +153,11 @@ class MapProcessor:
                 traceback.print_exc()
                 continue
         
-        # Convert to DataFrame with correct column ordering
+        # Convert to DataFrame with ONLY training features
         df = pd.DataFrame(all_features)
         
-        # Reorder columns to match ALL_OUTPUT_COLS
-        # (metadata first, then training features)
-        existing_cols = [col for col in ALL_OUTPUT_COLS if col in df.columns]
-        df = df[existing_cols]
+        # Ensure correct column order (as specified in TRAINING_FEATURE_COLS)
+        df = df[TRAINING_FEATURE_COLS]
         
         if verbose:
             print(f"\n{'='*70}")

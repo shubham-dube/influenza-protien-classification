@@ -65,31 +65,21 @@ EXPECTED_MAP_PATTERNS = [
 ]
 
 # ============================================================================
-# FEATURE COLUMNS (UPDATED FOR TRAINING)
+# FEATURE COLUMNS (FINAL TRAINING FEATURES ONLY)
 # ============================================================================
-# Final training features (in recommended order)
+# Final training features - THESE ARE THE ONLY COLUMNS IN OUTPUT CSV
 TRAINING_FEATURE_COLS = [
     "mean_dist", 
     "std_dist", 
-    "min_dist",
     "max_dist",
+    "min_dist",
     "num_points",
     "aspect_ratio", 
     "surface_area",
-    "density",  # NEW: Derived feature
+    "density",      # Derived: num_points / surface_area
+    "bbox_volume",  # Derived: coord_range_x * coord_range_y * coord_range_z
     "class_label"
 ]
-
-# Metadata columns (kept for tracking, excluded from training)
-METADATA_COLS = [
-    "map_file",
-    "map_id",
-    "protein_type",
-    "cluster_id"
-]
-
-# All output columns (for full dataset)
-ALL_OUTPUT_COLS = METADATA_COLS + TRAINING_FEATURE_COLS
 
 # ============================================================================
 # CACHE SETTINGS
