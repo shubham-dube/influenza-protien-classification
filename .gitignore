@@ -3,3 +3,9 @@ maps/
 xyz/
 data/
 training_data/
+__pycache__/
+*.pyc
+.DS_Store
+.ipynb_checkpoints/
+logs/
+data_directories/
