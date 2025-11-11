@@ -1,5 +1,11 @@
+# Core dependencies for cryo-EM/PDB processing pipeline
 numpy>=1.21.0
 pandas>=1.3.0
-mrcfile>=1.4.0
-open3d>=0.16.0
 scikit-learn>=1.0.0
+open3d>=0.13.0
+mrcfile>=1.3.0
+biopython>=1.79  # Required for PDB/ENT file parsing
+
+# Optional but recommended
+matplotlib>=3.4.0  # For visualization
+scipy>=1.7.0  # Additional scientific computing tools

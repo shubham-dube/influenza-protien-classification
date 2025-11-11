@@ -3,6 +3,7 @@
 processing_modules.py
 --------------------
 Modular processing functions for cryo-EM data pipeline.
+Now supports both density maps (.map/.mrc) and atomic structures (.pdb/.ent)
 """
 
 import numpy as np
@@ -12,9 +13,11 @@ from sklearn.cluster import KMeans
 from sklearn.neighbors import NearestNeighbors
 from typing import Tuple, Dict, List
 import mrcfile
+from Bio.PDB import PDBParser, MMCIFParser
+import warnings
 
 # ============================================================================
-# MODULE 1: MAP TO COORDINATES
+# MODULE 1A: MAP TO COORDINATES (Density Maps)
 # ============================================================================
 class MapConverter:
     """Convert cryo-EM density maps to 3D coordinates."""
@@ -53,6 +56,105 @@ class MapConverter:
 
 
 # ============================================================================
+# MODULE 1B: PDB TO COORDINATES (Atomic Structures)
+# ============================================================================
+class PDBConverter:
+    """Convert PDB/ENT atomic structures to 3D coordinates."""
+    
+    @staticmethod
+    def process(filepath: str, atom_types: List[str] = None,
+                backbone_only: bool = False) -> np.ndarray:
+        """
+        Extract coordinates from .pdb/.ent file.
+        
+        Args:
+            filepath: Path to PDB/ENT file
+            atom_types: List of atom types to include (e.g., ['CA', 'C', 'N', 'O'])
+                       If None, includes all atoms
+            backbone_only: If True, only extract backbone atoms (CA, C, N, O)
+        
+        Returns:
+            np.ndarray: Nx3 array of (x, y, z) coordinates in Angstroms
+        """
+        # Suppress PDB warnings
+        warnings.filterwarnings('ignore', category=Warning)
+        
+        # Determine file format and use appropriate parser
+        if filepath.lower().endswith('.cif'):
+            parser = MMCIFParser(QUIET=True)
+        else:
+            parser = PDBParser(QUIET=True)
+        
+        try:
+            structure = parser.get_structure('protein', filepath)
+        except Exception as e:
+            print(f"[ERROR] Failed to parse {filepath}: {e}")
+            raise
+        
+        # Extract coordinates
+        coords = []
+        
+        # Define backbone atoms
+        backbone_atoms = {'CA', 'C', 'N', 'O'}
+        
+        for model in structure:
+            for chain in model:
+                for residue in chain:
+                    for atom in residue:
+                        # Filter by atom type if specified
+                        if backbone_only and atom.get_name() not in backbone_atoms:
+                            continue
+                        if atom_types is not None and atom.get_name() not in atom_types:
+                            continue
+                        
+                        coords.append(atom.get_coord())
+        
+        if len(coords) == 0:
+            raise ValueError(f"No atoms found in {filepath}")
+        
+        return np.array(coords)
+
+
+# ============================================================================
+# MODULE 1C: UNIFIED CONVERTER (Dispatcher)
+# ============================================================================
+class UnifiedConverter:
+    """Unified converter that handles both density maps and PDB files."""
+    
+    def __init__(self):
+        self.map_converter = MapConverter()
+        self.pdb_converter = PDBConverter()
+    
+    def process(self, filepath: str, **kwargs) -> np.ndarray:
+        """
+        Process file based on extension.
+        
+        Args:
+            filepath: Path to input file
+            **kwargs: Additional parameters passed to specific converter
+        
+        Returns:
+            np.ndarray: Nx3 array of coordinates
+        """
+        ext = filepath.lower().split('.')[-1]
+        
+        if ext in ['map', 'mrc']:
+            # Density map processing
+            threshold = kwargs.get('threshold', 0.1)
+            downsample = kwargs.get('downsample', 4)
+            return self.map_converter.process(filepath, threshold, downsample)
+        
+        elif ext in ['pdb', 'ent', 'cif']:
+            # PDB/ENT processing
+            atom_types = kwargs.get('atom_types', None)
+            backbone_only = kwargs.get('backbone_only', False)
+            return self.pdb_converter.process(filepath, atom_types, backbone_only)
+        
+        else:
+            raise ValueError(f"Unsupported file format: {ext}")
+
+
+# ============================================================================
 # MODULE 2: POINT CLOUD CLEANING
 # ============================================================================
 class PointCloudCleaner:
@@ -67,6 +169,10 @@ class PointCloudCleaner:
         Returns:
             np.ndarray: Cleaned coordinates
         """
+        if len(coords) < nb_neighbors:
+            # Adjust nb_neighbors if we have fewer points
+            nb_neighbors = max(min(len(coords) - 1, 20), 1)
+        
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(coords)
         
@@ -168,6 +274,11 @@ class MeshGenerator:
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(coords)
         
+        # Adjust parameters for small point clouds
+        n_points = len(coords)
+        if n_points < normal_max_nn:
+            normal_max_nn = max(min(n_points - 1, 30), 1)
+        
         # Estimate normals
         pcd.estimate_normals(
             search_param=o3d.geometry.KDTreeSearchParamHybrid(
@@ -184,9 +295,10 @@ class MeshGenerator:
 
         # Remove low-density vertices (noise)
         densities = np.asarray(densities)
-        density_threshold = np.quantile(densities, 0.02)
-        vertices_to_keep = densities > density_threshold
-        mesh = mesh.select_by_index(np.where(vertices_to_keep)[0])
+        if len(densities) > 0:
+            density_threshold = np.quantile(densities, 0.02)
+            vertices_to_keep = densities > density_threshold
+            mesh = mesh.select_by_index(np.where(vertices_to_keep)[0])
 
         mesh.remove_degenerate_triangles()
         mesh.remove_duplicated_triangles()

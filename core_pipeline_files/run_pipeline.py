@@ -2,12 +2,14 @@
 """
 run_pipeline.py
 --------------
-Automated pipeline for processing multiple cryo-EM maps.
+Automated pipeline for processing cryo-EM maps and PDB structures.
 
 Usage:
-    python run_pipeline.py                    # Process all maps in ./maps/
+    python run_pipeline.py                    # Process all files in ./maps/ and ./pdb/
     python run_pipeline.py --clear-cache      # Clear cache and reprocess all
     python run_pipeline.py --skip-cache       # Process all without using cache
+    python run_pipeline.py --maps-only        # Process only density maps
+    python run_pipeline.py --pdb-only         # Process only PDB files
 """
 
 import os
@@ -19,34 +21,41 @@ from datetime import datetime
 from typing import List
 
 from pipeline_config import (
-    MAPS_DIR, OUTPUT_DIR, FINAL_DATASET, CACHE_INDEX_FILE,
-    ENABLE_CACHING, ensure_directories, TRAINING_FEATURE_COLS
+    MAPS_DIR, PDB_DIR, OUTPUT_DIR, FINAL_DATASET, CACHE_INDEX_FILE,
+    ENABLE_CACHING, ensure_directories, TRAINING_FEATURE_COLS,
+    is_supported_file
 )
 from cache_manager import CacheManager
 from map_processor import MapProcessor
 
 
-def find_map_files(directory: str) -> List[str]:
-    """Find all .map and .mrc files in directory."""
-    patterns = ["*.map", "*.mrc"]
-    map_files = []
+def find_files(directory: str, extensions: List[str]) -> List[str]:
+    """Find all files with given extensions in directory."""
+    all_files = []
     
-    for pattern in patterns:
-        map_files.extend(glob.glob(os.path.join(directory, pattern)))
+    for ext in extensions:
+        pattern = f"*.{ext}"
+        all_files.extend(glob.glob(os.path.join(directory, pattern)))
     
-    return sorted(map_files)
+    return sorted(all_files)
 
 
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Automated cryo-EM map processing pipeline"
+        description="Automated cryo-EM map and PDB processing pipeline"
     )
     parser.add_argument(
         "--maps-dir", 
         type=str, 
         default=MAPS_DIR,
         help=f"Directory containing map files (default: {MAPS_DIR})"
+    )
+    parser.add_argument(
+        "--pdb-dir", 
+        type=str, 
+        default=PDB_DIR,
+        help=f"Directory containing PDB files (default: {PDB_DIR})"
     )
     parser.add_argument(
         "--output-dir",
@@ -57,12 +66,22 @@ def parse_arguments():
     parser.add_argument(
         "--clear-cache",
         action="store_true",
-        help="Clear cache and reprocess all maps"
+        help="Clear cache and reprocess all files"
     )
     parser.add_argument(
         "--skip-cache",
         action="store_true",
-        help="Skip cache checking (process all maps)"
+        help="Skip cache checking (process all files)"
+    )
+    parser.add_argument(
+        "--maps-only",
+        action="store_true",
+        help="Process only density map files (.map, .mrc)"
+    )
+    parser.add_argument(
+        "--pdb-only",
+        action="store_true",
+        help="Process only PDB structure files (.pdb, .ent, .cif)"
     )
     parser.add_argument(
         "--verbose",
@@ -82,11 +101,12 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     print("="*70)
-    print("AUTOMATED CRYO-EM PROCESSING PIPELINE (v2.1)")
+    print("AUTOMATED CRYO-EM/PDB PROCESSING PIPELINE (v3.0)")
     print("TRAINING FEATURES ONLY")
     print("="*70)
     print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Maps directory: {args.maps_dir}")
+    print(f"PDB directory: {args.pdb_dir}")
     print(f"Output directory: {args.output_dir}")
     print("="*70)
     
@@ -97,37 +117,56 @@ def main():
         print("\n[INFO] Clearing cache...")
         cache.clear_cache()
     
-    # Find all map files
-    map_files = find_map_files(args.maps_dir)
+    # Collect all input files
+    all_files = []
     
-    if not map_files:
-        print(f"\n[ERROR] No .map or .mrc files found in {args.maps_dir}")
-        print("[INFO] Please place your map files in the 'maps' directory")
+    # Find density map files
+    if not args.pdb_only:
+        map_files = find_files(args.maps_dir, ['map', 'mrc'])
+        all_files.extend(map_files)
+        if map_files:
+            print(f"\n[INFO] Found {len(map_files)} density map files (.map, .mrc)")
+    
+    # Find PDB structure files
+    if not args.maps_only:
+        pdb_files = find_files(args.pdb_dir, ['pdb', 'ent', 'cif'])
+        all_files.extend(pdb_files)
+        if pdb_files:
+            print(f"[INFO] Found {len(pdb_files)} PDB structure files (.pdb, .ent, .cif)")
+    
+    if not all_files:
+        print(f"\n[ERROR] No supported files found!")
+        print(f"[INFO] Supported formats: .map, .mrc, .pdb, .ent, .cif")
+        print(f"[INFO] Place files in:")
+        print(f"       - Maps: {args.maps_dir}")
+        print(f"       - PDBs: {args.pdb_dir}")
         sys.exit(1)
     
-    print(f"\n[INFO] Found {len(map_files)} map files")
+    print(f"\n[INFO] Total files found: {len(all_files)}")
     
-    # Filter out already processed maps (unless skip-cache is set)
+    # Filter out already processed files (unless skip-cache is set)
     if ENABLE_CACHING and not args.skip_cache:
-        unprocessed_maps = []
-        skipped_maps = []
+        unprocessed_files = []
+        skipped_files = []
         
-        for map_file in map_files:
-            if cache.is_processed(map_file):
-                skipped_maps.append(map_file)
+        for file_path in all_files:
+            if cache.is_processed(file_path):
+                skipped_files.append(file_path)
             else:
-                unprocessed_maps.append(map_file)
+                unprocessed_files.append(file_path)
         
-        if skipped_maps:
-            print(f"\n[INFO] Skipping {len(skipped_maps)} already processed maps:")
-            for f in skipped_maps:
+        if skipped_files:
+            print(f"\n[INFO] Skipping {len(skipped_files)} already processed files:")
+            for f in skipped_files[:5]:  # Show first 5
                 print(f"  ✓ {os.path.basename(f)}")
+            if len(skipped_files) > 5:
+                print(f"  ... and {len(skipped_files) - 5} more")
         
-        map_files = unprocessed_maps
+        all_files = unprocessed_files
     
-    if not map_files:
-        print("\n[INFO] All maps have been processed!")
-        print("[INFO] Use --clear-cache to reprocess all maps")
+    if not all_files:
+        print("\n[INFO] All files have been processed!")
+        print("[INFO] Use --clear-cache to reprocess all files")
         
         # Load existing dataset
         if os.path.exists(FINAL_DATASET):
@@ -143,19 +182,25 @@ def main():
         
         sys.exit(0)
     
-    print(f"\n[INFO] Processing {len(map_files)} new maps...")
+    print(f"\n[INFO] Processing {len(all_files)} new files...")
+    
+    # Group files by type for reporting
+    map_count = sum(1 for f in all_files if f.lower().endswith(('.map', '.mrc')))
+    pdb_count = sum(1 for f in all_files if f.lower().endswith(('.pdb', '.ent', '.cif')))
+    print(f"       - Density maps: {map_count}")
+    print(f"       - PDB structures: {pdb_count}")
     
     # Initialize processor
     processor = MapProcessor()
     
-    # Process maps
-    new_features_df = processor.process_batch(map_files, verbose=args.verbose)
+    # Process files
+    new_features_df = processor.process_batch(all_files, verbose=args.verbose)
     
-    # Mark maps as processed in cache
+    # Mark files as processed in cache
     if ENABLE_CACHING:
-        for map_file in map_files:
+        for file_path in all_files:
             num_samples = len(new_features_df)
-            cache.mark_processed(map_file, {
+            cache.mark_processed(file_path, {
                 "num_samples": num_samples
             })
     
@@ -181,7 +226,8 @@ def main():
     summary_file = os.path.join(args.output_dir, "dataset_summary.txt")
     with open(summary_file, 'w') as f:
         f.write("="*70 + "\n")
-        f.write("DATASET SUMMARY (v2.1 - TRAINING FEATURES ONLY)\n")
+        f.write("DATASET SUMMARY (v3.0 - TRAINING FEATURES ONLY)\n")
+        f.write("Supports: .map, .mrc, .pdb, .ent, .cif files\n")
         f.write("="*70 + "\n")
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Total samples: {len(combined_df)}\n\n")
@@ -220,7 +266,7 @@ def main():
     if ENABLE_CACHING:
         stats = cache.get_statistics()
         print(f"\n[INFO] Cache statistics:")
-        print(f"   Total processed maps: {stats['total_processed']}")
+        print(f"   Total processed files: {stats['total_processed']}")
     
     # Print feature info
     print(f"\n[INFO] Final Feature Set ({len([c for c in TRAINING_FEATURE_COLS if c != 'class_label'])} features):")
@@ -231,6 +277,10 @@ def main():
     print(f"\n[INFO] Feature Engineering Applied:")
     print(f"   • density = num_points / surface_area")
     print(f"   • bbox_volume = coord_range_x × coord_range_y × coord_range_z")
+    
+    print(f"\n[INFO] Supported Input Formats:")
+    print(f"   • Density maps: .map, .mrc")
+    print(f"   • Atomic structures: .pdb, .ent, .cif")
     
     print("\n" + "="*70)
     print("PIPELINE COMPLETED SUCCESSFULLY")

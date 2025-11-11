@@ -2,14 +2,15 @@
 """
 map_processor.py
 ---------------
-Process a single cryo-EM map through the complete pipeline.
+Process cryo-EM maps and PDB structures through the complete pipeline.
+Supports .map, .mrc, .pdb, .ent, and .cif files.
 """
 
 import os
 import pandas as pd
 from typing import Dict, List
 from processing_modules import (
-    MapConverter, PointCloudCleaner, VirionClusterer,
+    UnifiedConverter, PointCloudCleaner, VirionClusterer,
     NeighborAnalyzer, MeshGenerator, FeatureExtractor
 )
 from pipeline_config import (
@@ -19,22 +20,32 @@ from pipeline_config import (
 
 
 class MapProcessor:
-    """Process a single map file through the entire pipeline."""
+    """Process map/PDB files through the entire pipeline."""
     
     def __init__(self, params: Dict = None):
         self.params = params or PROCESSING_PARAMS
         
         # Initialize processing modules
-        self.converter = MapConverter()
+        self.converter = UnifiedConverter()
         self.cleaner = PointCloudCleaner()
         self.clusterer = VirionClusterer()
         self.neighbor_analyzer = NeighborAnalyzer()
         self.mesh_generator = MeshGenerator()
         self.feature_extractor = FeatureExtractor()
     
+    def _get_file_type(self, filepath: str) -> str:
+        """Determine file type from extension."""
+        ext = filepath.lower().split('.')[-1]
+        if ext in ['map', 'mrc']:
+            return 'density_map'
+        elif ext in ['pdb', 'ent', 'cif']:
+            return 'atomic_structure'
+        else:
+            return 'unknown'
+    
     def process(self, map_file: str, verbose: bool = True) -> List[Dict]:
         """
-        Process a single map file and extract features.
+        Process a single file and extract features.
         
         Returns:
             List[Dict]: List of feature dictionaries (one per cluster)
@@ -46,20 +57,37 @@ class MapProcessor:
         
         # Extract metadata
         filename = os.path.basename(map_file)
+        file_type = self._get_file_type(map_file)
         protein_type = get_protein_type(filename)
         class_label = get_class_label(protein_type)
         
         if verbose:
-            print(f"[1/6] Detected protein type: {protein_type} (class {class_label})")
+            print(f"[1/6] File type: {file_type}")
+            print(f"      Detected protein type: {protein_type} (class {class_label})")
         
-        # Step 1: Convert map to coordinates
+        # Step 1: Convert to coordinates
         if verbose:
-            print(f"[2/6] Converting map to coordinates...")
-        coords = self.converter.process(
-            map_file,
-            threshold=self.params["threshold"],
-            downsample=self.params["downsample"]
-        )
+            print(f"[2/6] Converting to coordinates...")
+        
+        try:
+            if file_type == 'density_map':
+                coords = self.converter.process(
+                    map_file,
+                    threshold=self.params["threshold"],
+                    downsample=self.params["downsample"]
+                )
+            elif file_type == 'atomic_structure':
+                coords = self.converter.process(
+                    map_file,
+                    backbone_only=self.params["backbone_only"],
+                    atom_types=self.params["atom_types"]
+                )
+            else:
+                raise ValueError(f"Unsupported file type: {file_type}")
+        except Exception as e:
+            print(f"[ERROR] Failed to convert file: {e}")
+            raise
+        
         if verbose:
             print(f"      Extracted {len(coords)} points")
         
@@ -131,17 +159,17 @@ class MapProcessor:
     
     def process_batch(self, map_files: List[str], verbose: bool = True) -> pd.DataFrame:
         """
-        Process multiple map files.
+        Process multiple files.
         
         Returns:
-            pd.DataFrame: Combined features from all maps (column-ordered)
+            pd.DataFrame: Combined features from all files (column-ordered)
         """
         all_features = []
         
         for i, map_file in enumerate(map_files, 1):
             if verbose:
                 print(f"\n{'#'*70}")
-                print(f"Map {i}/{len(map_files)}")
+                print(f"File {i}/{len(map_files)}")
                 print(f"{'#'*70}")
             
             try:
@@ -163,7 +191,7 @@ class MapProcessor:
             print(f"\n{'='*70}")
             print(f"BATCH PROCESSING COMPLETE")
             print(f"{'='*70}")
-            print(f"Total maps processed: {len(map_files)}")
+            print(f"Total files processed: {len(map_files)}")
             print(f"Total feature rows: {len(df)}")
             print(f"Columns: {list(df.columns)}")
         
