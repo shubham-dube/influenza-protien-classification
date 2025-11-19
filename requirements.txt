@@ -5,6 +5,7 @@ scikit-learn
 open3d
 mrcfile
 biopython  # Required for PDB/ENT file parsing
+gunicorn
 
 # Optional but recommended
 matplotlib # For visualization
