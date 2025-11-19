@@ -19,7 +19,7 @@ import warnings
 import os
 
 # Import the PDB-to-map converter
-from pdb_to_realistic_map import PDBToRealisticMap
+from core_pipeline_files.pdb_to_realistic_map import PDBToRealisticMap
 
 
 # ============================================================================

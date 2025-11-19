@@ -20,13 +20,13 @@ import pandas as pd
 from datetime import datetime
 from typing import List
 
-from pipeline_config import (
+from core_pipeline_files.pipeline_config import (
     MAPS_DIR, PDB_DIR, OUTPUT_DIR, FINAL_DATASET, CACHE_INDEX_FILE,
     ENABLE_CACHING, ensure_directories, TRAINING_FEATURE_COLS,
     is_supported_file
 )
-from cache_manager import CacheManager
-from map_processor import MapProcessor
+from core_pipeline_files.cache_manager import CacheManager
+from core_pipeline_files.map_processor import MapProcessor
 
 
 def find_files(directory: str, extensions: List[str]) -> List[str]:

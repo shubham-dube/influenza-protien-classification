@@ -1,7 +1,7 @@
 # Core dependencies for cryo-EM/PDB processing pipeline
 numpy
 pandas
-scikit-learn
+scikit-learn==1.6.1
 open3d
 mrcfile
 biopython  # Required for PDB/ENT file parsing

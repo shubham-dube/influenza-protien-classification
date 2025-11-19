@@ -37,9 +37,9 @@ import io
 import base64
 
 # Import your processing modules
-from map_processor import MapProcessor
-from pipeline_config import PROCESSING_PARAMS, get_protein_type, get_class_label
-from processing_modules import UnifiedConverter, PointCloudCleaner, VirionClusterer
+from core_pipeline_files.map_processor import MapProcessor
+from core_pipeline_files.pipeline_config import PROCESSING_PARAMS, get_protein_type, get_class_label
+from core_pipeline_files.processing_modules import UnifiedConverter, PointCloudCleaner, VirionClusterer
 
 # Initialize Flask app
 app = Flask(__name__)
