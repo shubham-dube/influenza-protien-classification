@@ -3,7 +3,10 @@
 pipeline_config.py
 -----------------
 Central configuration for the automated cryo-EM processing pipeline.
-Now supports both density maps and PDB files.
+Supports both density maps and PDB files (with realistic map conversion).
+
+KEY UPDATE: Added PDB-to-realistic-map conversion parameters to ensure
+biologically meaningful feature extraction from atomic structures.
 """
 
 import os
@@ -14,10 +17,13 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR) 
 MAPS_DIR = os.path.join(ROOT_DIR, "data_directories/maps")
-PDB_DIR = os.path.join(ROOT_DIR, "data_directories/pdb")  # New PDB directory
+PDB_DIR = os.path.join(ROOT_DIR, "data_directories/pdb")
 CACHE_DIR = os.path.join(ROOT_DIR, "data_directories/.cache")
 OUTPUT_DIR = os.path.join(ROOT_DIR, "data_directories/output")
 FINAL_DATASET = os.path.join(OUTPUT_DIR, "training_data.csv")
+
+# PDB map conversion cache (subdirectory of CACHE_DIR)
+PDB_MAP_CACHE_DIR = os.path.join(CACHE_DIR, "pdb_maps")
 
 # ============================================================================
 # PROCESSING PARAMETERS
@@ -27,16 +33,24 @@ PROCESSING_PARAMS = {
     "threshold": 0.1,           # Density threshold for coordinate extraction
     "downsample": 4,            # Keep every Nth voxel
     
-    # PDB processing (for .pdb/.ent files)
-    "backbone_only": False,     # If True, only use backbone atoms (CA, C, N, O)
-    "atom_types": None,         # List of atom types to include, None = all atoms
+    # PDB to realistic map conversion (for .pdb/.ent/.cif files)
+    # These parameters control the simulated cryo-EM map generation
+    "apix": 1.2,                # Voxel size (Angstroms/pixel) for generated maps
+    "resolution": 6.0,          # Target resolution (Angstroms) - realistic range: 3-12
+    "box_size": 256,            # Box dimensions (voxels) - typical EMDB: 200-400
+    "min_separation": 150.0,    # Minimum virion separation (Angstroms) - ensures clean clustering
+    "noise_level": 2.0,         # Noise strength (0-5) - 2.0 is realistic for EMDB
+    
+    # CTF simulation (if EMAN2 available)
+    "defocus_min": 15000,       # Minimum defocus (Angstroms)
+    "defocus_max": 25000,       # Maximum defocus (Angstroms)
     
     # Point cloud cleaning
     "nb_neighbors": 200,        # For statistical outlier removal
     "std_ratio": 0.1,          # Standard deviation ratio for outliers
     
     # Clustering
-    "n_clusters": 3,           # Number of virions per protein
+    "n_clusters": 3,           # Number of virions per protein (matches PDB conversion)
     
     # Nearest neighbors
     "k_neighbors": 3,          # Number of nearest neighbors to compute
@@ -98,11 +112,50 @@ CACHE_INDEX_FILE = os.path.join(CACHE_DIR, "processed_maps.json")
 ENABLE_CACHING = True  # Set to False to reprocess all maps
 
 # ============================================================================
+# PDB-TO-MAP CONVERSION NOTES
+# ============================================================================
+"""
+PDB Conversion Pipeline:
+-----------------------
+For PDB/ENT/CIF files, the pipeline automatically:
+
+1. Creates 3 spatially separated copies (virions) with:
+   - Separation ≥ 150 Å (clean clustering)
+   - Random rotations (orientation diversity)
+
+2. Generates realistic cryo-EM density map:
+   - Resolution filtering (3-12 Å range)
+   - Gaussian noise (Poisson-like distribution)
+   - CTF effects (if EMAN2 available)
+   - Realistic voxel size (1.0-1.5 Å)
+
+3. Saves cached map as:
+   .cache/pdb_maps/<hash>.mrc
+   
+4. Extracts features from map (NOT from PDB directly)
+   - This ensures biologically meaningful features
+   - Features match EMDB density map processing
+
+Why this matters:
+-----------------
+Direct feature extraction from PDB atomic coordinates gives garbage values
+that have no biological meaning for cryo-EM analysis. The conversion step
+simulates realistic experimental conditions.
+
+EMAN2 vs Fallback:
+-----------------
+- WITH EMAN2: Full pipeline with CTF, realistic noise, projections
+- WITHOUT EMAN2: Simplified Gaussian density + noise (less realistic)
+
+To install EMAN2: https://blake.bcm.edu/emanwiki/EMAN2
+"""
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 def ensure_directories():
     """Create necessary directories if they don't exist."""
-    for directory in [MAPS_DIR, PDB_DIR, CACHE_DIR, OUTPUT_DIR]:
+    for directory in [MAPS_DIR, PDB_DIR, CACHE_DIR, OUTPUT_DIR, PDB_MAP_CACHE_DIR]:
         os.makedirs(directory, exist_ok=True)
 
 def get_protein_type(filename: str) -> str:
@@ -154,3 +207,16 @@ def is_supported_file(filename: str) -> bool:
     """Check if file extension is supported."""
     ext = os.path.splitext(filename)[1].lower()
     return ext in SUPPORTED_EXTENSIONS
+
+def get_conversion_info():
+    """Get information about PDB-to-map conversion settings."""
+    return {
+        'enabled': True,
+        'cache_dir': PDB_MAP_CACHE_DIR,
+        'apix': PROCESSING_PARAMS['apix'],
+        'resolution': PROCESSING_PARAMS['resolution'],
+        'box_size': PROCESSING_PARAMS['box_size'],
+        'n_virions': PROCESSING_PARAMS['n_clusters'],
+        'min_separation': PROCESSING_PARAMS['min_separation'],
+        'noise_level': PROCESSING_PARAMS['noise_level'],
+    }

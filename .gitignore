@@ -11,3 +11,7 @@ logs/
 data_directories/
 NA_map_links.txt
 temp/
+my-app/
+.vscode/
+.cache/
+training_data.csv

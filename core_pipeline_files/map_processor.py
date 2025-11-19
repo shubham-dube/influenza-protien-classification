@@ -4,6 +4,9 @@ map_processor.py
 ---------------
 Process cryo-EM maps and PDB structures through the complete pipeline.
 Supports .map, .mrc, .pdb, .ent, and .cif files.
+
+KEY UPDATE: PDB files are now converted to realistic cryo-EM maps before
+feature extraction, ensuring biologically meaningful results.
 """
 
 import os
@@ -15,18 +18,20 @@ from processing_modules import (
 )
 from pipeline_config import (
     PROCESSING_PARAMS, get_protein_type, get_class_label, 
-    TRAINING_FEATURE_COLS
+    TRAINING_FEATURE_COLS, CACHE_DIR
 )
 
 
 class MapProcessor:
     """Process map/PDB files through the entire pipeline."""
     
-    def __init__(self, params: Dict = None):
+    def __init__(self, params: Dict = None, cache_dir: str = None):
         self.params = params or PROCESSING_PARAMS
+        self.cache_dir = cache_dir or CACHE_DIR
         
         # Initialize processing modules
-        self.converter = UnifiedConverter()
+        # Pass cache_dir to UnifiedConverter for PDB map caching
+        self.converter = UnifiedConverter(cache_dir=self.cache_dir)
         self.cleaner = PointCloudCleaner()
         self.clusterer = VirionClusterer()
         self.neighbor_analyzer = NeighborAnalyzer()
@@ -46,6 +51,9 @@ class MapProcessor:
     def process(self, map_file: str, verbose: bool = True) -> List[Dict]:
         """
         Process a single file and extract features.
+        
+        For PDB files: Automatically converts to realistic cryo-EM map first
+        For MAP files: Processes directly
         
         Returns:
             List[Dict]: List of feature dictionaries (one per cluster)
@@ -71,16 +79,29 @@ class MapProcessor:
         
         try:
             if file_type == 'density_map':
+                # Direct conversion for density maps
                 coords = self.converter.process(
                     map_file,
                     threshold=self.params["threshold"],
                     downsample=self.params["downsample"]
                 )
             elif file_type == 'atomic_structure':
+                # PDB → Realistic Map → Coordinates
+                # This ensures biologically meaningful features
+                if verbose:
+                    print(f"      [PDB] Will convert to realistic cryo-EM map first")
+                
                 coords = self.converter.process(
                     map_file,
-                    backbone_only=self.params["backbone_only"],
-                    atom_types=self.params["atom_types"]
+                    threshold=self.params["threshold"],
+                    downsample=self.params["downsample"],
+                    # Additional PDB-specific parameters
+                    apix=self.params.get("apix", 1.2),
+                    resolution=self.params.get("resolution", 6.0),
+                    box_size=self.params.get("box_size", 256),
+                    n_virions=self.params["n_clusters"],  # Match clustering
+                    min_separation=self.params.get("min_separation", 150.0),
+                    noise_level=self.params.get("noise_level", 2.0)
                 )
             else:
                 raise ValueError(f"Unsupported file type: {file_type}")

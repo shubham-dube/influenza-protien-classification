@@ -4,6 +4,7 @@ processing_modules.py
 --------------------
 Modular processing functions for cryo-EM data pipeline.
 Now supports both density maps (.map/.mrc) and atomic structures (.pdb/.ent)
+WITH AUTOMATIC PDB→MAP CONVERSION FOR REALISTIC FEATURE EXTRACTION
 """
 
 import numpy as np
@@ -15,6 +16,11 @@ from typing import Tuple, Dict, List
 import mrcfile
 from Bio.PDB import PDBParser, MMCIFParser
 import warnings
+import os
+
+# Import the PDB-to-map converter
+from pdb_to_realistic_map import PDBToRealisticMap
+
 
 # ============================================================================
 # MODULE 1A: MAP TO COORDINATES (Density Maps)
@@ -56,74 +62,85 @@ class MapConverter:
 
 
 # ============================================================================
-# MODULE 1B: PDB TO COORDINATES (Atomic Structures)
+# MODULE 1B: PDB TO MAP TO COORDINATES (Atomic Structures)
 # ============================================================================
 class PDBConverter:
-    """Convert PDB/ENT atomic structures to 3D coordinates."""
+    """
+    Convert PDB/ENT atomic structures to realistic cryo-EM maps,
+    then extract coordinates.
     
-    @staticmethod
-    def process(filepath: str, atom_types: List[str] = None,
-                backbone_only: bool = False) -> np.ndarray:
+    CRITICAL: We do NOT extract features directly from PDB coordinates!
+    Instead, we:
+    1. Convert PDB → Realistic cryo-EM map (with noise, CTF, multiple virions)
+    2. Extract coordinates from that map (same as density map processing)
+    
+    This ensures biologically meaningful features.
+    """
+    
+    def __init__(self, cache_dir: str = None):
         """
-        Extract coordinates from .pdb/.ent file.
+        Initialize PDB converter with map generation.
         
         Args:
-            filepath: Path to PDB/ENT file
-            atom_types: List of atom types to include (e.g., ['CA', 'C', 'N', 'O'])
-                       If None, includes all atoms
-            backbone_only: If True, only extract backbone atoms (CA, C, N, O)
+            cache_dir: Directory to cache converted maps
+        """
+        self.map_converter_engine = PDBToRealisticMap(cache_dir=cache_dir)
+        self.density_extractor = MapConverter()
+    
+    def process(self, filepath: str, threshold: float = 0.1,
+                downsample: int = 4, **kwargs) -> np.ndarray:
+        """
+        Convert PDB to realistic map, then extract coordinates.
+        
+        Args:
+            filepath: Path to PDB/ENT/CIF file
+            threshold: Density threshold for coordinate extraction
+            downsample: Downsampling factor
+            **kwargs: Additional parameters for map generation
         
         Returns:
-            np.ndarray: Nx3 array of (x, y, z) coordinates in Angstroms
+            np.ndarray: Nx3 array of (x, y, z) coordinates
         """
-        # Suppress PDB warnings
-        warnings.filterwarnings('ignore', category=Warning)
+        print(f"[PDB] Processing {os.path.basename(filepath)}")
+        print(f"[PDB] Converting to realistic cryo-EM map first...")
         
-        # Determine file format and use appropriate parser
-        if filepath.lower().endswith('.cif'):
-            parser = MMCIFParser(QUIET=True)
-        else:
-            parser = PDBParser(QUIET=True)
+        # Step 1: Convert PDB → Realistic Map
+        # This automatically creates 3 virions with proper spacing
+        map_file = self.map_converter_engine.convert(
+            filepath,
+            output_file=None,  # Use cache
+            **kwargs
+        )
         
-        try:
-            structure = parser.get_structure('protein', filepath)
-        except Exception as e:
-            print(f"[ERROR] Failed to parse {filepath}: {e}")
-            raise
+        print(f"[PDB] ✓ Map generated: {os.path.basename(map_file)}")
+        print(f"[PDB] Extracting coordinates from map...")
         
-        # Extract coordinates
-        coords = []
+        # Step 2: Extract coordinates from the generated map
+        coords = self.density_extractor.process(
+            map_file,
+            threshold=threshold,
+            downsample=downsample
+        )
         
-        # Define backbone atoms
-        backbone_atoms = {'CA', 'C', 'N', 'O'}
+        print(f"[PDB] ✓ Extracted {len(coords)} coordinates")
         
-        for model in structure:
-            for chain in model:
-                for residue in chain:
-                    for atom in residue:
-                        # Filter by atom type if specified
-                        if backbone_only and atom.get_name() not in backbone_atoms:
-                            continue
-                        if atom_types is not None and atom.get_name() not in atom_types:
-                            continue
-                        
-                        coords.append(atom.get_coord())
-        
-        if len(coords) == 0:
-            raise ValueError(f"No atoms found in {filepath}")
-        
-        return np.array(coords)
+        return coords
 
 
 # ============================================================================
 # MODULE 1C: UNIFIED CONVERTER (Dispatcher)
 # ============================================================================
 class UnifiedConverter:
-    """Unified converter that handles both density maps and PDB files."""
+    """
+    Unified converter that handles both density maps and PDB files.
     
-    def __init__(self):
+    KEY CHANGE: PDB files are now converted to realistic maps FIRST,
+    then processed identically to regular density maps.
+    """
+    
+    def __init__(self, cache_dir: str = None):
         self.map_converter = MapConverter()
-        self.pdb_converter = PDBConverter()
+        self.pdb_converter = PDBConverter(cache_dir=cache_dir)
     
     def process(self, filepath: str, **kwargs) -> np.ndarray:
         """
@@ -139,16 +156,33 @@ class UnifiedConverter:
         ext = filepath.lower().split('.')[-1]
         
         if ext in ['map', 'mrc']:
-            # Density map processing
+            # Density map processing (direct)
             threshold = kwargs.get('threshold', 0.1)
             downsample = kwargs.get('downsample', 4)
             return self.map_converter.process(filepath, threshold, downsample)
         
         elif ext in ['pdb', 'ent', 'cif']:
-            # PDB/ENT processing
-            atom_types = kwargs.get('atom_types', None)
-            backbone_only = kwargs.get('backbone_only', False)
-            return self.pdb_converter.process(filepath, atom_types, backbone_only)
+            # PDB processing (via realistic map conversion)
+            # Extract relevant parameters
+            threshold = kwargs.get('threshold', 0.1)
+            downsample = kwargs.get('downsample', 4)
+            
+            # Map generation parameters
+            map_params = {
+                'apix': kwargs.get('apix', 1.2),
+                'resolution': kwargs.get('resolution', 6.0),
+                'box_size': kwargs.get('box_size', 256),
+                'n_virions': kwargs.get('n_virions', 3),
+                'min_separation': kwargs.get('min_separation', 150.0),
+                'noise_level': kwargs.get('noise_level', 2.0),
+            }
+            
+            return self.pdb_converter.process(
+                filepath, 
+                threshold=threshold,
+                downsample=downsample,
+                **map_params
+            )
         
         else:
             raise ValueError(f"Unsupported file format: {ext}")
@@ -310,7 +344,7 @@ class MeshGenerator:
 
 
 # ============================================================================
-# MODULE 6: FEATURE EXTRACTION (UPDATED - REFINED FEATURES)
+# MODULE 6: FEATURE EXTRACTION
 # ============================================================================
 class FeatureExtractor:
     """Extract refined features from processed data for training."""
