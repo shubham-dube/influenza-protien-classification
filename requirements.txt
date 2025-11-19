@@ -6,7 +6,7 @@ open3d
 mrcfile
 biopython  # Required for PDB/ENT file parsing
 gunicorn
-
+Flask-Cors
 # Optional but recommended
 matplotlib # For visualization
 scipy  # Additional scientific computing tools
